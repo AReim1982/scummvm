@@ -66,13 +66,15 @@ void Cache::load(const Common::Path &name, Common::SeekableReadStream &stream) {
 		// It's compressed, so decompress the file and store its data in the cache entry
 		Common::SeekableReadStream *decompressed = _vm->_res->decompress(stream);
 		cacheEntry.resize(decompressed->size());
-		decompressed->read(&cacheEntry[0], decompressed->size());
+		if (!cacheEntry.empty())
+			decompressed->read(&cacheEntry[0], decompressed->size());
 
 		delete decompressed;
 	} else {
 		// It's not, so read the raw data of the file into the cache entry
 		cacheEntry.resize(stream.size());
-		stream.read(&cacheEntry[0], stream.size());
+		if (!cacheEntry.empty())
+			stream.read(&cacheEntry[0], stream.size());
 	}
 }
 
@@ -115,9 +117,25 @@ Resources::Resources(SherlockEngine *vm) : _vm(vm), _cache(vm) {
 }
 
 void Resources::addToCache(const Common::Path &filename) {
-	// Return immediately if the library has already been loaded
+	// Return immediately if the library index has already been loaded
 	if (_indexes.contains(filename))
 		return;
+
+	// A cached file may not have been indexed yet, so inspect its contents
+	// before trying to open the physical file.
+	if (_cache.isCached(filename)) {
+		Common::SeekableReadStream *stream = _cache.get(filename);
+		uint32 header = stream->readUint32BE();
+		stream->seek(0);
+
+		if (header == MKTAG('L', 'I', 'B', 26))
+			loadLibraryIndex(filename, stream, false);
+		else if (header == MKTAG('L', 'I', 'C', 26))
+			loadLibraryIndex(filename, stream, true);
+
+		delete stream;
+		return;
+	}
 
 	Common::File file;
 	if (!file.open(filename))
@@ -154,6 +172,8 @@ void Resources::addToCache(const Common::Path &filename) {
 void Resources::addToCache(const Common::Path &filename, const Common::Path &libFilename) {
 	// Get the resource
 	Common::SeekableReadStream *stream = load(filename, libFilename);
+	if (!stream)
+		return;
 
 	_cache.load(filename, *stream);
 
@@ -193,6 +213,8 @@ Common::SeekableReadStream *Resources::load(const Common::Path &filename) {
 			library.seek(entry._offset);
 			Common::SeekableReadStream *resStream = library.readStream(entry._size);
 			library.close();
+			if (!resStream)
+				error("Could not read resource - %s", filename.toString().c_str());
 
 			decompressIfNecessary(resStream);
 			return resStream;
