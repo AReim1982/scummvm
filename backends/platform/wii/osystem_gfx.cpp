@@ -256,8 +256,8 @@ void OSystem_Wii::initSize(uint width, uint height,
 	}
 
 	if (_gameWidth != newWidth || _gameHeight != newHeight) {
-		// TODO: Return an error code in endGFXTransaction()
-		assert((newWidth <= 640) && (newHeight <= 480));
+		assert(newWidth > 0 && newWidth <= 1024);
+		assert(newHeight > 0 && newHeight <= 1024);
 
 		if (width != newWidth || height != newHeight)
 			printf("extending texture for compatibility: %ux%u -> %ux%u\n",
@@ -298,12 +298,24 @@ void OSystem_Wii::initSize(uint width, uint height,
 
 		_gamePixels = (u8 *) memalign(32, _gameWidth * _gameHeight *
 										_pfGame.bytesPerPixel);
+		if (!_gamePixels) {
+			printf("could not allocate game pixel buffer\n");
+			::abort();
+		}
+
 		memset(_gamePixels, 0, _gameWidth * _gameHeight *
 				_pfGame.bytesPerPixel);
 
 		if (_pfGame != _pfGameTexture) {
 			_gamePixelsTexture = (u8 *) memalign(32, _gameWidth * _gameHeight *
 											_pfGameTexture.bytesPerPixel);
+			if (!_gamePixelsTexture) {
+				free(_gamePixels);
+				_gamePixels = nullptr;
+				printf("could not allocate game texture buffer\n");
+				::abort();
+			}
+
 			memset(_gamePixelsTexture, 0, _gameWidth * _gameHeight *
 					_pfGameTexture.bytesPerPixel);
 		} else {
@@ -691,6 +703,7 @@ void OSystem_Wii::setMouseCursor(const void *buf, uint w, uint h, int hotspotX,
 		tex_format = GFX_TF_RGB5A3;
 		_pfCursorTexture = _pfRGB3444;
 		_mouseKeyColor = keycolor;
+
 		tw = ROUNDUP(w, 4);
 		th = ROUNDUP(h, 4);
 	} else {
